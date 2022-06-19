@@ -113,6 +113,15 @@ Future<void> saveStr(String fn, String d) async {
     throw Error();
   }
 
+
+  // Unneccesary write detection
+  var y = await saf.child(root, basename);
+  if (y != null) {
+    if(await saf.getDocumentContentAsString(y.uri) == d){
+      return;
+    }
+  }
+
   saf.DocumentFile? x = await saf.createFileAsString(root,
       mimeType: "text/json", displayName: "$basename~", content: d);
 
@@ -120,7 +129,6 @@ Future<void> saveStr(String fn, String d) async {
     throw Error();
   }
 
-  var y = await saf.child(root, basename);
   if (y != null) {
     await y.delete();
   }
@@ -209,31 +217,58 @@ Future<void> rename(String path, String newbasename) async {
   }
 }
 
-Future<String> read(fn) async {
-  saf.DocumentFile? c = await traverse(fn);
-
-
-  if (!(c == null)) {
-    var st = await saf.getDocumentContentAsString(c.uri);
+Future<String> read(String fn) async {
+  saf.DocumentFile? c;
+  
+  if(fn.contains('://')) {
+    var st = await saf.getDocumentContentAsString(Uri.parse(fn));
     if (st == null) {
       throw Future.error(Error);
     }
     return st;
+  
+  }else
+  {
+  c = await traverse(fn);
+
+
+  if (!(c == null)) {
+  var st = await saf.getDocumentContentAsString(c.uri);
+  if (st == null) {
+  throw Future.error(Error);
+  }
+  return st;
+  }
   }
 
   throw Future.error(Error);
 }
 
-Stream<String> ls(String fn, bool directories) async* {
-  saf.DocumentFile? c = await traverse(fn);
+
+//Returns [filename, full_uri_or_path]
+
+Stream<List<String>> ls(String fn, bool directories) async* {
+
+  Uri? u;
+
+  if(fn.contains('://')) {
+    u=Uri.parse(fn);
+  }else {
+    var c = await traverse(fn);
+    if( c==null)
+      {
+        return;
+      }
+    u=c.uri;
+  }
 
 
-  if (c == null) {
+  if (u == null) {
     return;
   }
 
 
-  var l = await saf.listFiles(c.uri, columns: [
+  var l = await saf.listFiles(u, columns: [
     saf.DocumentFileColumn.id,
     saf.DocumentFileColumn.displayName,
     saf.DocumentFileColumn.mimeType,
@@ -255,9 +290,10 @@ Stream<String> ls(String fn, bool directories) async* {
     }
 
     String? x = i.data?[saf.DocumentFileColumn.displayName];
+    Uri? y =  i.metadata?.uri;
 
-    if (!(x == null)) {
-      yield x;
+    if ((!(x == null)) && (!(y==null))) {
+      yield [x, y.toString()];
     }
   }
 }

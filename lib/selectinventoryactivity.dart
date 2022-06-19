@@ -18,7 +18,7 @@ class _InventorySelectorState extends State<InventorySelector>
     List lists = [];
 
     for (var fn in await fsutil.ls("", true).toList()) {
-      String title = fn;
+      String title = fn[0];
 
       if (!title.contains(filter)) {
         continue;
@@ -39,7 +39,7 @@ class _InventorySelectorState extends State<InventorySelector>
           children: [
             ElevatedButton(
                 onPressed: () async {
-                  Navigator.pop(context, fn);
+                  Navigator.pop(context, fn[0]);
                 },
                 child: const Text("Select"))
           ],

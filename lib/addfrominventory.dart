@@ -3,6 +3,30 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'dart:convert' as conv;
 import 'dart:math';
+import 'fsutil.dart' as fsutil;
+
+Future<Map<String, Map>> getSKUList(String fn) async {
+  Map<String, Map> d = {};
+
+  //Important that we do all the loads in paralell p
+  try {
+    var x = await fsutil.ls("$fn/sku", false).toList();
+
+    List<Future> l = [];
+    for (var i in x) {
+      l.add(fsutil.read(i[1]).then((value) {
+        d[i[0].substring(0, i[0].length - 4)] = conv.jsonDecode(value);
+      }, onError: (e) {
+        print(e);
+      }));
+    }
+    await Future.wait(l);
+  } catch (e) {
+    print(e);
+  }
+
+  return d;
+}
 
 Uint8List urandom(int l) {
   var random = Random.secure();
@@ -10,15 +34,18 @@ Uint8List urandom(int l) {
 }
 
 class AddFromInventory extends StatefulWidget {
-  const AddFromInventory({Key? key, required this.fn, required this.data, required this.target})
+  const AddFromInventory(
+      {Key? key,
+      required this.fn,
+      required this.target,
+      required this.changeTracker})
       : super(key: key);
 
-
-
   final String fn;
-  final String data;
 
   final Map target;
+
+  final Map changeTracker;
 
   @override
   State<AddFromInventory> createState() => _AddFromInventoryState();
@@ -28,62 +55,57 @@ class _AddFromInventoryState extends State<AddFromInventory>
     with WidgetsBindingObserver {
   Map data = {};
   String fn = '';
-
-  String newfn = '';
   String filter = '';
 
   List<Widget> shownItems = [];
 
+  void doSKUList() async {
+    data = await getSKUList(fn);
 
-  void doSKUList() {
     List<Widget> l = [];
     List<String> k = [];
 
-    for(var i in data['sku'].keys)
-    {
-      if(i.runtimeType==String) {
+    for (var i in data.keys) {
+      if (i.runtimeType == String) {
         k.add(i);
       }
-    }    k.sort();
+    }
+    k.sort();
 
     for (var i in k) {
       if (!i.contains(filter)) {
-        if (!data['sku'][i]['title'].contains(filter)) {
+        if (!data[i]['title'].contains(filter)) {
           continue;
         }
       }
 
-
       Widget c = Card(
           child: Column(children: [
-            ListTile(
-              leading: const Icon(Icons.list),
-              title: TextFormField(
-                decoration: const InputDecoration(
-                  labelText: '',
-                ),
-                initialValue: data['sku'][i]['title']
+        ListTile(
+          leading: const Icon(Icons.list),
+          title: TextFormField(
+              decoration: const InputDecoration(
+                labelText: '',
               ),
-              subtitle: const Text(''),
-            ),
-            Row(
-              children: [
-                ElevatedButton(
-                    onPressed: () async {
-                      if(!widget.target['sku'].containsKey(i)) {
-                        widget.target['sku'][i] = data['sku'][i];
-                      }
-
-                    }, child: const Text("Copy this")),
-
-
-                ElevatedButton(
-                    onPressed: () async {
-                    },
-                    child: Text("SKU $i"))
-              ],
-            )
-          ]));
+              initialValue: data[i]['title']),
+          subtitle: const Text(''),
+        ),
+        Row(
+          children: [
+            ElevatedButton(
+                onPressed: () async {
+                  if (!widget.target.containsKey(i)) {
+                    widget.target[i] = data[i];
+                    widget.changeTracker[i] = true;
+                  }
+                },
+                child: const Text("Copy this")),
+            ElevatedButton(
+                onPressed: () async {},
+                child: Text("SKU  ${i.substring(0, min(i.length, 40))}"))
+          ],
+        )
+      ]));
       l.add(c);
     }
     setState(() {
@@ -94,16 +116,12 @@ class _AddFromInventoryState extends State<AddFromInventory>
   @override
   void initState() {
     super.initState();
-    data = conv.jsonDecode(widget.data);
-    data.putIfAbsent('sku', () => {});
     fn = widget.fn;
-    newfn = fn;
 
     WidgetsBinding.instance.addObserver(this);
 
     doSKUList();
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -119,16 +137,14 @@ class _AddFromInventoryState extends State<AddFromInventory>
                 decoration: const InputDecoration(
                   labelText: 'Inventory Name',
                 ),
-                initialValue: newfn,
+                initialValue: fn,
               ),
             ),
             body: Center(
               // Center is a layout widget. It takes a single child and positions it
               // in the middle of the parent.
               child: Column(
-
                 mainAxisAlignment: MainAxisAlignment.start,
-
                 children: <Widget>[
                   TextFormField(
                       decoration: const InputDecoration(
@@ -147,8 +163,7 @@ class _AddFromInventoryState extends State<AddFromInventory>
                             mainAxisSize: MainAxisSize.min,
                             children: shownItems,
                           ))),
-                  Row(children: [
-                  ])
+                  Row(children: [])
                 ],
               ),
             )));

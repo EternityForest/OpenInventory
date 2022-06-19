@@ -66,7 +66,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     }
 
     for (var fn in await fsutil.ls("", true).toList()) {
-        String title = fn;
+        String title = fn[0];
 
         if(! title.contains(filter))
         {
@@ -87,13 +87,11 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                         Navigator.of(context); // store the Navigator
 
 
-                    var d = await fsutil.read(fn+"/inventory.json");
-
                     navigator
                         .push(
                           MaterialPageRoute(
                               builder: (context) =>
-                                  InventoryHome(fn: fn, data:  d)),
+                                  InventoryHome(fn: fn[0])),
                         )
                         .then((value) => updateLists());
                   },
@@ -182,7 +180,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                     await navigator.push(
                       MaterialPageRoute(
                           builder: (context) =>
-                              InventoryHome(fn: n, data: '{}')),
+                              InventoryHome(fn: n)),
                     );
                     updateLists();
                   },

@@ -19,11 +19,10 @@ Uint8List urandom(int l) {
 
 // fn is actually the folder name
 class InventoryHome extends StatefulWidget {
-  const InventoryHome({Key? key, required this.fn, required this.data})
+  const InventoryHome({Key? key, required this.fn})
       : super(key: key);
 
   final String fn;
-  final String data;
 
   @override
   State<InventoryHome> createState() => _InventoryHomeState();
@@ -31,7 +30,8 @@ class InventoryHome extends StatefulWidget {
 
 class _InventoryHomeState extends State<InventoryHome>
     with WidgetsBindingObserver {
-  Map data = {};
+
+  Map<String, Map> sku= {};
   String fn = '';
   String newfn = '';
 
@@ -49,24 +49,55 @@ class _InventoryHomeState extends State<InventoryHome>
 
   bool changed = false;
 
+  Map<String,bool> skuMetaChanged = {};
+
   List<Widget> shownItems = [];
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState appLifecycleState) {
-    setState(() {
       if (appLifecycleState == AppLifecycleState.detached) {
         save(newfn);
       }
-    });
   }
 
-  void doSKUList() async {
+
+
+  Future<Map<String, Map>> getSKUList(String fn) async
+  {
+    Map<String, Map> d = {};
+
+    //Important that we do all the loads in paralell p
+    try{
+      var x = await fsutil.ls("$fn/sku", false).toList();
+
+      List<Future> l =[];
+      for(var i in x){
+        l.add(
+            fsutil.read(i[1]).then((value){d[i[0].substring(0,i[0].length-5)]=conv.jsonDecode(value); })
+        );
+      }
+      await Future.wait(l);
+    }
+
+    catch(e){
+      print(e);
+    }
+
+    return d;
+  }
+
+
+  Future<void> doSKUList() async {
     //Only do this once
     if (username == '') {
+
+
+
       username =
           (await SharedPreferences.getInstance()).getString("username") ??
               'user';
 
+      sku = await getSKUList(fn);
 
       var tallies = await fsutil.ls("$fn/tallies", true).toList();
 
@@ -79,19 +110,21 @@ class _InventoryHomeState extends State<InventoryHome>
         tallies = await fsutil.ls("$fn/tallies", true).toList();
       }
 
-      tallies.sort();
-      selectedTally = tallies.last;
+      tallies.sort((a,b) => a[0].compareTo(b[0]));
+
+      selectedTally = tallies.last[0];
 
       if (await fsutil.exists("$fn/tallies/$selectedTally/$username.json")) {
         userTallyData = conv.jsonDecode(
             await fsutil.read("$fn/tallies/$selectedTally/$username.json"));
       }
 
-      var f = await fsutil.ls("$fn/tallies/$selectedTally", false).toList();
+
+      var f = await fsutil.ls(tallies.last[1], false).toList();
 
       for (var i in f ) {
         Map d =
-        conv.jsonDecode(await fsutil.read("$fn/tallies/$selectedTally/$i"));
+        conv.jsonDecode(await fsutil.read(i[1]));
         d.putIfAbsent("sku", () => {});
 
         // The per user tally files are not absolutes, they are running tallies,
@@ -112,7 +145,7 @@ class _InventoryHomeState extends State<InventoryHome>
 
     List<String> k = [];
 
-    for (var i in data['sku'].keys) {
+    for (var i in sku.keys) {
       if (i.runtimeType == String) {
         k.add(i);
       }
@@ -121,7 +154,7 @@ class _InventoryHomeState extends State<InventoryHome>
 
     for (var i in k) {
       if (!i.contains(filter)) {
-        if (!data['sku'][i]['title'].contains(filter)) {
+        if (!sku[i]?['title'].contains(filter)) {
           continue;
         }
       }
@@ -142,10 +175,10 @@ class _InventoryHomeState extends State<InventoryHome>
               decoration: const InputDecoration(
                 labelText: '',
               ),
-              initialValue: data['sku'][i]['title'],
+              initialValue: sku[i]?['title'] ?? '?????',
               onChanged: (v) {
-                data['sku'][i]['title'] = v;
-                changed = true;
+                sku[i]?['title'] = v;
+                skuMetaChanged[i]=true;
               },
             ),
             subtitle: const Text(''),
@@ -172,7 +205,7 @@ class _InventoryHomeState extends State<InventoryHome>
                   userTallyData['sku'][i]?['stock'] =
                       (userTallyData['sku'][i]?['stock'] ?? 0) - 1;
                   userTallyDataChanged = true;
-                  doSKUList();
+                  await doSKUList();
                 },
                 icon: const Icon(Icons.remove)),
             IconButton(
@@ -187,36 +220,42 @@ class _InventoryHomeState extends State<InventoryHome>
                   userTallyData['sku'][i]?['stock'] =
                       (userTallyData['sku'][i]?['stock'] ?? 0) + 1;
                   userTallyDataChanged = true;
-                  doSKUList();
+                 await doSKUList();
                 },
                 icon: Icon(Icons.add)),
-            ElevatedButton(
-                onPressed: () async {
-                  String? s = await textPrompt(Navigator.of(context), "New SKU",
-                      initialValue: i);
-                  if (s == null) {
-                    return;
-                  }
-                  var x = data['sku'][i];
-                  data['sku'].remove(i);
-                  data['sku'][s] = x;
-                  changed = true;
-                  doSKUList();
-                },
-                child: Text("SKU $i")),
+
 
                 IconButton(onPressed: () async{
                   var r =await textPrompt(Navigator.of(context), "Really delete?",initialValue: 'yes');
                   if(r=='yes')
                   {
-                    data['sku'].remove(i);
-                    changed=true;
-                    doSKUList();
+                    sku.remove(i);
+                    skuMetaChanged[i]=true;
+                    await doSKUList();
                   }
                 }, icon: Icon(Icons.delete)),
 
 
-              ])
+              ]),
+              ElevatedButton(
+                  onPressed: () async {
+                    String? s = await textPrompt(Navigator.of(context), "New SKU",
+                        initialValue: i);
+                    if (s == null) {
+                      return;
+                    }
+                    var x = sku[i];
+                    if(x==null)
+                      {
+                        return;
+                      }
+                    sku.remove(i);
+                    sku[s] = x;
+                    skuMetaChanged[i]=true;
+                    skuMetaChanged[s]=true;
+                    await doSKUList();
+                  },
+                  child: Text("SKU ${i.substring(0,min(i.length,40))}"))
         ]));
         l.add(c);
       } catch (e, s) {
@@ -233,8 +272,7 @@ class _InventoryHomeState extends State<InventoryHome>
   @override
   void initState() {
     super.initState();
-    data = conv.jsonDecode(widget.data);
-    data.putIfAbsent('sku', () => {});
+
     fn = widget.fn;
     newfn = fn;
 
@@ -249,15 +287,32 @@ class _InventoryHomeState extends State<InventoryHome>
       await fsutil.saveStr("$fn/tallies/$selectedTally/$username.json",
           encoder.convert(userTallyData));
     }
-    if (changed == false) {
-      return;
-    }
 
     if (!(fn.endsWith(newbasename))) {
       fsutil.rename(fn, newbasename);
     }
 
-    await fsutil.saveStr("$fn/inventory.json", encoder.convert(data));
+    List<Future> x=[];
+
+    for(var i in skuMetaChanged.keys)
+      {
+        if(sku.containsKey(i)) {
+          x.add(
+              fsutil.saveStr("$fn/sku/$i.json", conv.jsonEncode(sku[i]))
+          );
+        }
+        else
+          {
+            x.add(
+            fsutil.delete("$fn/sku/$i.json")
+            );
+          }
+      }
+
+    skuMetaChanged.clear();
+    changed=false;
+
+    await Future.wait(x);
   }
 
   Future<void> delete() async {
@@ -331,11 +386,11 @@ class _InventoryHomeState extends State<InventoryHome>
 
                           while (true) {
                             code = await textPrompt(n, "SKU # or code",
-                                initialValue: "000");
+                                initialValue: "000", barcodes: true);
                             if (code == null) {
                               return;
                             }
-                            if (!data['sku'].containsKey(code)) {
+                            if (!sku.containsKey(code)) {
                               break;
                             }
                           }
@@ -345,8 +400,8 @@ class _InventoryHomeState extends State<InventoryHome>
                             return;
                           }
 
-                          changed = true;
-                          data['sku'][code] = {'title': title};
+                          skuMetaChanged[code]=true;
+                          sku[code] = {'title': title};
                           doSKUList();
                         },
                         child: const Text("New Row")),
@@ -360,13 +415,10 @@ class _InventoryHomeState extends State<InventoryHome>
                             return;
                           }
 
-                          String invdata =
-                              await fsutil.read("$inv/inventory.json");
 
-                          changed = true;
                           await n.push(MaterialPageRoute(
                               builder: (c) => addfrom.AddFromInventory(
-                                  fn: inv, data: invdata, target: data)));
+                                  fn: inv, target: sku, changeTracker: skuMetaChanged)));
                           doSKUList();
                         },
                         child: const Text("Import SKUs"))
